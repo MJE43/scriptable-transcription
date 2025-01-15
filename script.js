@@ -478,21 +478,20 @@ async function presentError(error) {
     await alert.present();
 }
 
-// Widget Implementation
 class TranscriptionWidget {
     async render() {
         const widget = new ListWidget();
-        widget.backgroundColor = new Color("#1A1A1A");
+        widget.backgroundColor = new Color("#1A1A1A"); // keep this
 
         const header = widget.addStack();
         const title = header.addText("Voice Memo Transcription");
-        title.font = Font.boldSystemFont(16);
-        title.textColor = Color.white();
+        title.font = Font.boldSystemFont(16); // now bold
+        title.textColor = new Color("#F0F0F0"); // softer white
 
-        widget.addSpacer(8);
-
+        widget.addSpacer(8); // added space here
+      
         const transcribeButton = widget.addText("Tap to transcribe a voice memo");
-        transcribeButton.font = Font.systemFont(14);
+        transcribeButton.font = Font.systemFont(14); // smaller
         transcribeButton.textColor = new Color("#CCCCCC");
 
         widget.url = "scriptable:///run/" + Script.name();
@@ -501,6 +500,7 @@ class TranscriptionWidget {
     }
 }
 
+
 // Run based on context
 if (config.runsInWidget) {
     let widget = await new TranscriptionWidget().render();
@@ -508,4 +508,3 @@ if (config.runsInWidget) {
 } else {
     await transcribeVoiceMemo();
 }
-    
