@@ -139,7 +139,7 @@ async function checkTranscriptionStatus(transcriptId) {
 }
 
 // Main transcription function
-async function transcribeVoiceMemo(filePath) {
+async function transcribeVoiceMemo() {
     try {
         // Ensure API key exists
         await ensureApiKey();
@@ -148,11 +148,8 @@ async function transcribeVoiceMemo(filePath) {
         const options = await getTranscriptionOptions();
         if (!options) return; // User cancelled
 
-        if (!filePath) {
-          console.log("No file selected, aborting");
-          return
-        }
-
+        // Get the voice memo file
+        const filePath = await DocumentPicker.openFile();
         console.log("Selected file:", filePath);
 
         const fm = FileManager.local();
@@ -182,18 +179,18 @@ async function transcribeVoiceMemo(filePath) {
         while (attempts < maxAttempts) {
             console.log(`Checking status (attempt ${attempts + 1}/${maxAttempts})`);
             const status = await checkTranscriptionStatus(transcriptId);
-
+    
             if (status.status === "completed") {
-                 await presentResult(status);
+                await presentResult(status);
                 return;
             } else if (status.status === "error") {
                 throw new Error(status.error || "Transcription failed");
             }
-
+    
             attempts++;
-            const timer = new Timer();
-            timer.timeInterval = 3000;
             await new Promise(resolve => {
+                const timer = new Timer();
+                timer.timeInterval = 3000;
                 timer.schedule(function() {
                     timer.invalidate();
                     resolve();
@@ -357,17 +354,17 @@ async function processWithGemini(text, preset) {
 
         request.body = JSON.stringify(requestBody);
         const response = await request.loadJSON();
-            if (!response.candidates || !response.candidates[0]) {
-                throw new Error("No response from Gemini API");
-            }
 
-            return response.candidates[0].content.parts[0].text;
-      } catch (error) {
+        if (!response.candidates || !response.candidates[0]) {
+            throw new Error("No response from Gemini API");
+        }
+
+        return response.candidates[0].content.parts[0].text;
+    } catch (error) {
         console.error("Gemini API error:", error);
         throw error;
     }
 }
-
 
 // Present the transcription result
 async function presentResult(response) {
@@ -385,10 +382,8 @@ async function presentResult(response) {
     } else {
         formattedText = response.text;
     }
-    
-    let geminiProcessedText = null;
-    
-      const alert = new Alert();
+
+    const alert = new Alert();
     alert.title = "Transcription Complete";
     alert.message = "What would you like to do with the transcription?";
     alert.addAction("Process with Gemini AI");
@@ -398,14 +393,15 @@ async function presentResult(response) {
 
     const result = await alert.present();
 
-    switch (result) {
+     switch (result) {
         case 0: // Process with Gemini
-             geminiProcessedText = await presentGeminiOptions(formattedText);
-            if (geminiProcessedText) {
-                await presentProcessedResult(geminiProcessedText, formattedText);
-            }
-            break;
-
+             const geminiResponse = await presentGeminiOptions(formattedText);
+             if (geminiResponse) {
+                 const combinedText = `Gemini Response:\n\n${geminiResponse}\n\nFull Transcript:\n\n${formattedText}`;
+                 await presentProcessedResult(combinedText);
+             }
+             break;
+      
         case 1: // Copy to Clipboard
             Pasteboard.copy(formattedText);
             const notification = new Notification();
@@ -413,21 +409,21 @@ async function presentResult(response) {
             notification.body = "The transcription has been copied to your clipboard";
             notification.schedule();
             break;
-
+      
         case 2: // Save to Bear
-             await saveToBear(formattedText);
+            await saveToBear(formattedText);
             break;
     }
 }
 
 // Present processed result
-async function presentProcessedResult(text, originalText) {
+async function presentProcessedResult(text) {
     const alert = new Alert();
     alert.title = "AI Processing Complete";
     alert.message = "What would you like to do with the processed text?";
     alert.addAction("Copy to Clipboard");
     alert.addAction("Save to Bear");
-      alert.addCancelAction("Cancel");
+    alert.addCancelAction("Cancel");
 
     const result = await alert.present();
 
@@ -439,41 +435,30 @@ async function presentProcessedResult(text, originalText) {
             notification.body = "The processed text has been copied to your clipboard";
             notification.schedule();
             break;
-
+      
         case 1: // Save to Bear
-            await saveToBear(text, originalText);
+            await saveToBear(text);
             break;
     }
 }
 
-
 // Save to Bear
-async function saveToBear(text, originalText = null) {
-      try {
-        let bearText = "";
-        
-        if(originalText) {
-            bearText = `## Gemini Processed Result\n\n${text}\n\n---\n\n## Full Transcription\n\n${originalText}`;
-        } else {
-            bearText = text;
-        }
-        
+async function saveToBear(text) {
+    try {
         const title = "Voice Memo Transcription";
         const encodedTitle = encodeURIComponent(title);
-        const encodedText = encodeURIComponent(bearText);
+        const encodedText = encodeURIComponent(text);
         const bearURL = `bear://x-callback-url/create?title=${encodedTitle}&text=${encodedText}&open_note=yes`;
-         const success = await Safari.open(bearURL);
-        
-        if (success) {
-            const notification = new Notification();
-            notification.title = "Saved to Bear";
-            notification.body = "The transcription has been saved as a new note in Bear";
-            notification.schedule();
-             console.log("Successfully opened Bear URL"); // Debug log to confirm Safari.open returned true
-            
-        } else {
-             throw new Error("Safari.open returned false, indicating an issue with the URL");
+
+        const success = await Safari.open(bearURL);
+        if (!success) {
+            throw new Error("Failed to open Bear. Make sure Bear is installed.");
         }
+
+        const notification = new Notification();
+        notification.title = "Saved to Bear";
+        notification.body = "The transcription has been saved as a new note in Bear";
+        notification.schedule();
     } catch (error) {
         console.error("Error saving to Bear:", error);
         const alert = new Alert();
@@ -520,11 +505,7 @@ class TranscriptionWidget {
 if (config.runsInWidget) {
     let widget = await new TranscriptionWidget().render();
     Script.setWidget(widget);
-} else if (args.fileURLs.length > 0) {
-    // Share sheet context
-    const filePath = args.fileURLs[0];
-    await transcribeVoiceMemo(filePath);
 } else {
-    // Default context (e.g., when run from the app)
     await transcribeVoiceMemo();
 }
+    
